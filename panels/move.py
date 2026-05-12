@@ -34,7 +34,7 @@ class Panel(ScreenPanel):
             "y-": self._gtk.Button("arrow-down", "Y-", "color2"),
             "z+": self._gtk.Button("z-farther", "Z+", "color3"),
             "z-": self._gtk.Button("z-closer", "Z-", "color3"),
-            "home": self._gtk.Button("home", _("Home"), "color4"),
+            "home": self._gtk.Button("home", _("Home All"), "color4"),
             "motors_off": self._gtk.Button("motor-off", _("Disable Motors"), "color4"),
         }
         self.buttons["x+"].connect("clicked", self.move, "X", "+")
@@ -279,10 +279,4 @@ class Panel(ScreenPanel):
             self._screen._ws.klippy.gcode_script("G90")
 
     def home(self, widget):
-        if "delta" in self._printer.get_config_section("printer")["kinematics"]:
-            self._screen._send_action(widget, "printer.gcode.script", {"script": "G28"})
-            return
-        name = "homing"
-        disname = self._screen._config.get_menu_name("move", name)
-        menuitems = self._screen._config.get_menu_items("move", name)
-        self._screen.show_panel("menu", disname, items=menuitems)
+        self._screen._send_action(widget, "printer.gcode.script", {"script": "G28"})

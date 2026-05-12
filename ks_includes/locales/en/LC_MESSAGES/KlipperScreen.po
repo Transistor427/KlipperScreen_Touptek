@@ -35,6 +35,9 @@ msgstr ""
 msgid "Gcodes"
 msgstr ""
 
+msgid "Scans"
+msgstr ""
+
 msgid "Bed Level"
 msgstr ""
 

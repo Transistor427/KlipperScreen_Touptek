@@ -56,6 +56,13 @@ class BasePanel(ScreenPanel):
         self.control['printer_select'] = self._gtk.Button('shuffle', scale=self.abscale)
         self.control['printer_select'].connect("clicked", self._screen.show_printer_select)
         self.control['printer_select'].set_no_show_all(True)
+        self.control['light'] = self._gtk.Button('light', scale=self.abscale)
+        self.control['light'].connect(
+            "clicked",
+            self._screen._send_action,
+            "printer.gcode.script",
+            {"script": "LIGHT_SWITCH"},
+        )
 
         self.shorcut = {
             "panel": "gcode_macros",
@@ -82,6 +89,7 @@ class BasePanel(ScreenPanel):
         self.action_bar.add(self.control['back'])
         self.action_bar.add(self.control['home'])
         self.action_bar.add(self.control['printer_select'])
+        self.action_bar.add(self.control['light'])
         self.action_bar.add(self.control['shortcut'])
         self.action_bar.add(self.control['estop'])
         self.action_bar.add(self.control['shutdown'])

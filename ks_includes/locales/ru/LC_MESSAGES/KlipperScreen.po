@@ -41,6 +41,9 @@ msgstr "Печать"
 msgid "Gcodes"
 msgstr "G-коды"
 
+msgid "Scans"
+msgstr "Сканирование"
+
 msgid "Bed Level"
 msgstr "Уровень стола"
 

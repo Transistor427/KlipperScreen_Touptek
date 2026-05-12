@@ -3,11 +3,12 @@ import logging
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk
 from panels.menu import Panel as MenuPanel
 from ks_includes.widgets.heatergraph import HeaterGraph
 from ks_includes.widgets.keypad import Keypad
 from ks_includes.KlippyGtk import find_widget
+from ks_includes.widgets.mjpeg_preview import MainMenuCameraPreview
 
 
 class Panel(MenuPanel):
@@ -17,6 +18,7 @@ class Panel(MenuPanel):
         self.devices = {}
         self.graph_update = None
         self.active_heater = None
+        self.camera_preview = None
         self.h = self.f = 0
         self.main_menu = Gtk.Grid(row_homogeneous=True, column_homogeneous=True, hexpand=True, vexpand=True)
         scroll = self._gtk.ScrolledWindow()
@@ -43,30 +45,17 @@ class Panel(MenuPanel):
         if self.left_panel is None:
             logging.info("No left panel")
             return
-        count = 0
-        for device in self.devices:
-            visible = self._config.get_config().getboolean(f"graph {self._screen.connected_printer}",
-                                                           device, fallback=True)
-            self.devices[device]['visible'] = visible
-            self.labels['da'].set_showing(device, visible)
-            if visible:
-                count += 1
-                self.devices[device]['name'].get_style_context().add_class("graph_label")
-            else:
-                self.devices[device]['name'].get_style_context().remove_class("graph_label")
-        if count > 0 and not force_hide:
-            if self.labels['da'] not in self.left_panel:
-                self.left_panel.add(self.labels['da'])
-            self.labels['da'].queue_draw()
-            self.labels['da'].show()
-            if self.graph_update is None:
-                # This has a high impact on load
-                self.graph_update = GLib.timeout_add_seconds(5, self.update_graph)
-        elif self.labels['da'] in self.left_panel:
-            self.left_panel.remove(self.labels['da'])
-            if self.graph_update is not None:
-                GLib.source_remove(self.graph_update)
-                self.graph_update = None
+        if self.camera_preview is None:
+            return False
+        if force_hide:
+            if self.camera_preview.widget in self.left_panel:
+                self.left_panel.remove(self.camera_preview.widget)
+            self.camera_preview.stop()
+        else:
+            if self.camera_preview.widget not in self.left_panel:
+                self.left_panel.add(self.camera_preview.widget)
+            self.camera_preview.start()
+            self.camera_preview.widget.show_all()
         return False
 
     def activate(self):
@@ -75,9 +64,8 @@ class Panel(MenuPanel):
         self.update_graph_visibility()
 
     def deactivate(self):
-        if self.graph_update is not None:
-            GLib.source_remove(self.graph_update)
-            self.graph_update = None
+        if self.camera_preview is not None:
+            self.camera_preview.stop()
         if self.active_heater is not None:
             self.hide_numpad()
 
@@ -242,6 +230,8 @@ class Panel(MenuPanel):
 
         self.left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.left_panel.add(scroll)
+        self.camera_preview = MainMenuCameraPreview(self._screen, "http://127.0.0.1:8081/stream")
+        self.left_panel.add(self.camera_preview.widget)
 
         for d in self._printer.get_temp_devices():
             self.add_device(d)
