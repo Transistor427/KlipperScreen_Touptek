@@ -19,7 +19,6 @@ class Panel(MenuPanel):
         self.graph_update = None
         self.active_heater = None
         self.camera_preview = None
-        self._camera_slot = None
         self.h = self.f = 0
         self.main_menu = Gtk.Grid(row_homogeneous=True, column_homogeneous=True, hexpand=True, vexpand=True)
         scroll = self._gtk.ScrolledWindow()
@@ -46,13 +45,15 @@ class Panel(MenuPanel):
         if self.left_panel is None:
             logging.info("No left panel")
             return
-        if self.camera_preview is None or self._camera_slot is None:
+        if self.camera_preview is None:
             return False
         if force_hide:
-            self._camera_slot.hide()
+            if self.camera_preview.widget in self.left_panel:
+                self.left_panel.remove(self.camera_preview.widget)
             self.camera_preview.stop()
         else:
-            self._camera_slot.show_all()
+            if self.camera_preview.widget not in self.left_panel:
+                self.left_panel.add(self.camera_preview.widget)
             self.camera_preview.start()
             self.camera_preview.widget.show_all()
         return False
@@ -227,20 +228,10 @@ class Panel(MenuPanel):
         scroll.get_style_context().add_class('heater-list')
         scroll.add(self.labels['devices'])
 
-        self.left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, vexpand=True)
-        self.left_panel.pack_start(scroll, False, False, 0)
-
+        self.left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.left_panel.add(scroll)
         self.camera_preview = MainMenuCameraPreview(self._screen, "http://127.0.0.1:8081/stream")
-
-        self._camera_slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, vexpand=True)
-        top_gap = Gtk.Box()
-        top_gap.set_vexpand(True)
-        bottom_gap = Gtk.Box()
-        bottom_gap.set_vexpand(True)
-        self._camera_slot.pack_start(top_gap, True, True, 0)
-        self._camera_slot.pack_start(self.camera_preview.widget, False, False, 0)
-        self._camera_slot.pack_start(bottom_gap, True, True, 0)
-        self.left_panel.pack_start(self._camera_slot, True, True, 0)
+        self.left_panel.add(self.camera_preview.widget)
 
         for d in self._printer.get_temp_devices():
             self.add_device(d)
