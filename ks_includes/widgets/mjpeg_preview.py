@@ -11,21 +11,26 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
 import requests
 
-MAX_BUFFER_LEN = 2_000_000
+PREVIEW_INTERVAL_SEC = 1.0
+FULLSCREEN_INTERVAL_SEC = 0.35
 
 
 class MainMenuCameraPreview:
-    """MJPEG preview with tap-to-fullscreen."""
+    """Camera preview using lightweight snapshot polling."""
 
     def __init__(self, screen, url):
         self._screen = screen
-        self.url = url
+        self.url = self._to_snapshot_url(url)
         self._running = False
         self._thread = None
         self._fullscreen = False
         self._fullscreen_box = None
         self._last_raw_pixbuf = None
         self._raw_lock = threading.Lock()
+        self._session = requests.Session()
+        self._last_target_size = (0, 0)
+        self._last_source_size = (0, 0)
+        self._last_scaled_pixbuf = None
 
         self.image = Gtk.Image(hexpand=True, vexpand=True)
         self.image.set_from_pixbuf(self._solid_pixbuf(4, 3, 0x1A, 0x1D, 0x26))
@@ -48,6 +53,12 @@ class MainMenuCameraPreview:
         self.event_box.connect("button-press-event", self._on_press)
         self.widget.connect_after("size-allocate", lambda *_: GLib.idle_add(self._refresh_scaled))
         self.widget.show_all()
+
+    @staticmethod
+    def _to_snapshot_url(url):
+        if url.endswith("/stream"):
+            return f"{url[:-7]}/snapshot"
+        return url
 
     @staticmethod
     def _solid_pixbuf(width, height, r, g, b):
@@ -118,57 +129,47 @@ class MainMenuCameraPreview:
 
     def _feed_loop(self):
         while self._running:
+            started = time.monotonic()
             try:
-                with requests.get(
-                    self.url, stream=True, timeout=(8, None), headers={"Connection": "close"}
+                with self._session.get(
+                    self.url,
+                    timeout=(2.5, 2.5),
+                    headers={"Connection": "close", "Cache-Control": "no-cache"},
                 ) as response:
                     response.raise_for_status()
-                    buffer = b""
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if not self._running:
-                            break
-                        if not chunk:
-                            continue
-                        buffer += chunk
-                        if len(buffer) > MAX_BUFFER_LEN:
-                            buffer = buffer[-500_000:]
-
-                        while self._running:
-                            start = buffer.find(b"\xff\xd8")
-                            if start == -1:
-                                buffer = buffer[-1024:] if buffer else buffer
-                                break
-                            end = buffer.find(b"\xff\xd9", start + 2)
-                            if end == -1:
-                                buffer = buffer[start:]
-                                break
-                            frame = buffer[start:end + 2]
-                            buffer = buffer[end + 2:]
-                            GLib.idle_add(self._decode_and_store, bytes(frame))
+                    frame = response.content
+                    if frame:
+                        self._decode_and_store(frame)
             except requests.RequestException as exc:
-                logging.warning("Camera MJPEG fetch error: %s", exc)
+                logging.warning("Camera snapshot fetch error: %s", exc)
             except Exception as exc:
-                logging.warning("Camera MJPEG error: %s", exc)
+                logging.warning("Camera snapshot error: %s", exc)
 
             if self._running:
-                time.sleep(1)
+                interval = FULLSCREEN_INTERVAL_SEC if self._fullscreen else PREVIEW_INTERVAL_SEC
+                elapsed = time.monotonic() - started
+                pause = max(0.05, interval - elapsed)
+                time.sleep(pause)
 
     def _decode_and_store(self, jpeg_bytes):
         if not self._running:
-            return False
+            return
         try:
             loader = GdkPixbuf.PixbufLoader()
             loader.write(jpeg_bytes)
             loader.close()
             pixbuf = loader.get_pixbuf()
         except Exception:
-            return False
+            return
         if pixbuf is None:
-            return False
+            return
 
+        GLib.idle_add(self._set_frame, pixbuf)
+
+    def _set_frame(self, pixbuf):
         with self._raw_lock:
             self._last_raw_pixbuf = pixbuf
-        GLib.idle_add(self._refresh_scaled)
+        self._refresh_scaled()
         return False
 
     def _get_target_size(self):
@@ -199,8 +200,21 @@ class MainMenuCameraPreview:
 
         new_w = max(2, int(raw_w * scale))
         new_h = max(2, int(raw_h * scale))
+        source_size = (raw_w, raw_h)
+        target_size = (new_w, new_h)
+        if (
+            self._last_scaled_pixbuf is not None
+            and self._last_source_size == source_size
+            and self._last_target_size == target_size
+        ):
+            self.image.set_from_pixbuf(self._last_scaled_pixbuf)
+            return False
+
         scaled = raw.scale_simple(new_w, new_h, GdkPixbuf.InterpType.BILINEAR)
         if scaled is None:
             return False
+        self._last_scaled_pixbuf = scaled
+        self._last_source_size = source_size
+        self._last_target_size = target_size
         self.image.set_from_pixbuf(scaled)
         return False
