@@ -20,6 +20,9 @@ msgstr ""
 msgid "Move"
 msgstr ""
 
+msgid "Control"
+msgstr ""
+
 msgid "Temperature"
 msgstr ""
 
