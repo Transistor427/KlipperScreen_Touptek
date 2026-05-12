@@ -26,9 +26,6 @@ class MainMenuCameraPreview:
         self._last_raw_pixbuf = None
         self._raw_lock = threading.Lock()
         self._session = requests.Session()
-        self._last_target_size = (0, 0)
-        self._last_source_size = (0, 0)
-        self._last_scaled_pixbuf = None
         self._last_frame_at = 0.0
 
         self.image = Gtk.Image(hexpand=True, vexpand=True)
@@ -99,7 +96,8 @@ class MainMenuCameraPreview:
                             if now - self._last_frame_at < MIN_FRAME_INTERVAL:
                                 continue
                             self._last_frame_at = now
-                            self._decode_and_store(frame)
+                            # PixbufLoader must run on GTK main thread; only pass raw bytes here.
+                            GLib.idle_add(self._decode_jpeg_main, bytes(frame))
             except requests.RequestException as exc:
                 logging.warning("Camera stream fetch error: %s", exc)
             except Exception as exc:
@@ -108,26 +106,27 @@ class MainMenuCameraPreview:
             if self._running:
                 time.sleep(0.2)
 
-    def _decode_and_store(self, jpeg_bytes):
+    def _decode_jpeg_main(self, jpeg_bytes):
         if not self._running:
-            return
+            return False
+        pixbuf = None
         try:
             loader = GdkPixbuf.PixbufLoader()
             loader.write(jpeg_bytes)
             loader.close()
             pixbuf = loader.get_pixbuf()
         except Exception:
-            return
+            return False
         if pixbuf is None:
-            return
+            return False
 
-        GLib.idle_add(self._set_frame, pixbuf)
+        self._set_frame(pixbuf)
+        return False
 
     def _set_frame(self, pixbuf):
         with self._raw_lock:
             self._last_raw_pixbuf = pixbuf
         self._refresh_scaled()
-        return False
 
     def _get_target_size(self):
         current = self.image.get_parent()
@@ -157,21 +156,8 @@ class MainMenuCameraPreview:
 
         new_w = max(2, int(raw_w * scale))
         new_h = max(2, int(raw_h * scale))
-        source_size = (raw_w, raw_h)
-        target_size = (new_w, new_h)
-        if (
-            self._last_scaled_pixbuf is not None
-            and self._last_source_size == source_size
-            and self._last_target_size == target_size
-        ):
-            self.image.set_from_pixbuf(self._last_scaled_pixbuf)
-            return False
-
         scaled = raw.scale_simple(new_w, new_h, GdkPixbuf.InterpType.BILINEAR)
         if scaled is None:
             return False
-        self._last_scaled_pixbuf = scaled
-        self._last_source_size = source_size
-        self._last_target_size = target_size
         self.image.set_from_pixbuf(scaled)
         return False
